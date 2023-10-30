@@ -472,11 +472,14 @@ namespace hpx {
         lbt_ << "(1st stage) runtime_distributed::start: launching "
                 "run_helper HPX thread";
 
-        threads::thread_init_data data(
-            hpx::bind(&runtime_distributed::run_helper, this, func,
-                std::ref(result_)),
-            "run_helper", threads::thread_priority::normal,
-            threads::thread_schedule_hint(0), threads::thread_stacksize::large);
+        threads::thread_function_type thread_func =
+            threads::make_thread_function(
+                hpx::bind(&runtime_distributed::run_helper, this, func,
+                    std::ref(result_)));
+
+        threads::thread_init_data data(HPX_MOVE(thread_func), "run_helper",
+            threads::thread_priority::normal, threads::thread_schedule_hint(0),
+            threads::thread_stacksize::large);
 
         this->runtime::starting();
         threads::thread_id_ref_type id = threads::invalid_thread_id;
@@ -1623,6 +1626,7 @@ namespace hpx {
 
         std::uint32_t current = (*it).second;
         (*it).second += cores_needed;
+
         return current;
     }
 
@@ -1749,6 +1753,14 @@ namespace hpx {
         components::component_type type, error_code& ec)
     {
         std::vector<hpx::id_type> locality_ids;
+        if (nullptr == hpx::applier::get_applier_ptr())
+        {
+            HPX_THROWS_IF(ec, hpx::error::invalid_status,
+                "hpx::find_all_localities",
+                "the runtime system is not available at this time");
+            return locality_ids;
+        }
+
         hpx::applier::get_applier().get_localities(locality_ids, type, ec);
         return locality_ids;
     }
@@ -1756,6 +1768,14 @@ namespace hpx {
     std::vector<hpx::id_type> find_all_localities(error_code& ec)
     {
         std::vector<hpx::id_type> locality_ids;
+        if (nullptr == hpx::applier::get_applier_ptr())
+        {
+            HPX_THROWS_IF(ec, hpx::error::invalid_status,
+                "hpx::find_all_localities",
+                "the runtime system is not available at this time");
+            return locality_ids;
+        }
+
         hpx::applier::get_applier().get_localities(locality_ids, ec);
         return locality_ids;
     }
@@ -1764,6 +1784,14 @@ namespace hpx {
         components::component_type type, error_code& ec)
     {
         std::vector<hpx::id_type> locality_ids;
+        if (nullptr == hpx::applier::get_applier_ptr())
+        {
+            HPX_THROWS_IF(ec, hpx::error::invalid_status,
+                "hpx::find_remote_localities",
+                "the runtime system is not available at this time");
+            return locality_ids;
+        }
+
         hpx::applier::get_applier().get_remote_localities(
             locality_ids, type, ec);
         return locality_ids;
@@ -1772,14 +1800,30 @@ namespace hpx {
     std::vector<hpx::id_type> find_remote_localities(error_code& ec)
     {
         std::vector<hpx::id_type> locality_ids;
+        if (nullptr == hpx::applier::get_applier_ptr())
+        {
+            HPX_THROWS_IF(ec, hpx::error::invalid_status,
+                "hpx::find_remote_localities",
+                "the runtime system is not available at this time");
+            return locality_ids;
+        }
+
         hpx::applier::get_applier().get_remote_localities(
             locality_ids, components::component_invalid, ec);
+
         return locality_ids;
     }
 
     // find a locality supporting the given component
     hpx::id_type find_locality(components::component_type type, error_code& ec)
     {
+        if (nullptr == hpx::applier::get_applier_ptr())
+        {
+            HPX_THROWS_IF(ec, hpx::error::invalid_status, "hpx::find_locality",
+                "the runtime system is not available at this time");
+            return hpx::invalid_id;
+        }
+
         std::vector<hpx::id_type> locality_ids;
         hpx::applier::get_applier().get_localities(locality_ids, type, ec);
 

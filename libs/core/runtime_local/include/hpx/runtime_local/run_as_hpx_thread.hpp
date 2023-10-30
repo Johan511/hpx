@@ -1,4 +1,4 @@
-//  Copyright (c) 2016-2018 Hartmut Kaiser
+//  Copyright (c) 2016-2023 Hartmut Kaiser
 //
 //  SPDX-License-Identifier: BSL-1.0
 //  Distributed under the Boost Software License, Version 1.0. (See accompanying
@@ -14,6 +14,7 @@
 #include <hpx/functional/invoke_result.hpp>
 #include <hpx/synchronization/spinlock.hpp>
 #include <hpx/threading_base/thread_helpers.hpp>
+#include <hpx/threading_base/threading_base_fwd.hpp>
 
 #include <chrono>
 #include <condition_variable>
@@ -25,7 +26,8 @@
 #include <type_traits>
 #include <utility>
 
-namespace hpx { namespace threads {
+namespace hpx {
+
     ///////////////////////////////////////////////////////////////////////////
     namespace detail {
         // This is the overload for running functions which return a value.
@@ -147,4 +149,17 @@ namespace hpx { namespace threads {
         return detail::run_as_hpx_thread(
             result_is_void(), f, HPX_FORWARD(Ts, vs)...);
     }
-}}    // namespace hpx::threads
+}    // namespace hpx
+
+namespace hpx::threads {
+
+    template <typename F, typename... Ts>
+    HPX_DEPRECATED_V(1, 10,
+        "hpx::threads::run_as_hpx_thread is deprecated, use "
+        "hpx::run_as_hpx_thread instead")
+    decltype(auto) run_as_hpx_thread(F const& f, Ts&&... ts)
+    {
+        return hpx::run_as_hpx_thread(
+            HPX_FORWARD(F, f), HPX_FORWARD(Ts, ts)...);
+    }
+}    // namespace hpx::threads

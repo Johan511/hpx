@@ -4,9 +4,18 @@
 # Distributed under the Boost Software License, Version 1.0. (See accompanying
 # file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+# compatibility with older CMake versions
+if(JSON_ROOT AND NOT Json_ROOT)
+  set(Json_ROOT
+      ${JSON_ROOT}
+      CACHE PATH "Json base directory"
+  )
+  unset(JSON_ROOT CACHE)
+endif()
+
 if(NOT HPX_WITH_FETCH_JSON)
   find_package(nlohmann_json 3.2.0 REQUIRED)
-elseif(NOT TARGET JSON::json)
+elseif(NOT TARGET Json::json)
   if(NOT HPX_WITH_JSON_TAG)
     set(HPX_WITH_JSON_TAG "v3.11.2")
   endif()
@@ -29,23 +38,23 @@ elseif(NOT TARGET JSON::json)
   )
   fetchcontent_makeavailable(nlohmann_json)
 
-  set(JSON_ROOT ${nlohmann_json_SOURCE_DIR})
+  set(Json_ROOT ${nlohmann_json_SOURCE_DIR})
 
   add_library(json INTERFACE)
   target_include_directories(
-    json SYSTEM INTERFACE $<BUILD_INTERFACE:${JSON_ROOT}/include>
+    json SYSTEM INTERFACE $<BUILD_INTERFACE:${Json_ROOT}/include>
                           $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   )
   target_compile_definitions(json INTERFACE JSON_HAS_CPP_17)
 
   install(
     TARGETS json
-    EXPORT HPXJSONTarget
+    EXPORT HPXJsonTarget
     COMPONENT core
   )
 
   install(
-    DIRECTORY ${JSON_ROOT}/include/
+    DIRECTORY ${Json_ROOT}/include/
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     COMPONENT core
     FILES_MATCHING
@@ -54,17 +63,17 @@ elseif(NOT TARGET JSON::json)
 
   export(
     TARGETS json
-    NAMESPACE JSON::
-    FILE "${CMAKE_BINARY_DIR}/lib/cmake/${HPX_PACKAGE_NAME}/HPXJSONTarget.cmake"
+    NAMESPACE Json::
+    FILE "${CMAKE_BINARY_DIR}/lib/cmake/${HPX_PACKAGE_NAME}/HPXJsonTarget.cmake"
   )
 
   install(
-    EXPORT HPXJSONTarget
-    NAMESPACE JSON::
-    FILE HPXJSONTarget.cmake
+    EXPORT HPXJsonTarget
+    NAMESPACE Json::
+    FILE HPXJsonTarget.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${HPX_PACKAGE_NAME}
     COMPONENT cmake
   )
 
-  add_library(JSON::json ALIAS json)
+  add_library(Json::json ALIAS json)
 endif()

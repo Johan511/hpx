@@ -10,9 +10,6 @@
 # Make undefined variables errors, print each command
 set -eux
 
-# Clean up old artifacts
-rm -f ./jenkins-hpx* ./*-Testing
-
 source .jenkins/lsu-perftests/slurm-constraint-${configuration_name}.sh
 
 if [[ -z "${ghprbPullId:-}" ]]; then
@@ -34,6 +31,7 @@ sleep $[(RANDOM % 10) + 1].$[(RANDOM % 10)]s
 set +e
 sbatch \
     --verbose --verbose --verbose --verbose \
+    --exclusive \
     --job-name="${job_name}" \
     --nodes="1" \
     --partition="${configuration_slurm_partition}" \

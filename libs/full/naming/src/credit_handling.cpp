@@ -1,4 +1,4 @@
-//  Copyright (c) 2007-2022 Hartmut Kaiser
+//  Copyright (c) 2007-2023 Hartmut Kaiser
 //  Copyright (c) 2011      Bryce Lelbach
 //
 //  SPDX-License-Identifier: BSL-1.0
@@ -16,6 +16,7 @@
 #include <hpx/modules/checkpoint_base.hpp>
 #include <hpx/modules/errors.hpp>
 #include <hpx/modules/execution.hpp>
+#include <hpx/modules/futures.hpp>
 #include <hpx/modules/logging.hpp>
 #include <hpx/modules/memory.hpp>
 #include <hpx/naming/credit_handling.hpp>
@@ -114,7 +115,7 @@ namespace hpx::naming {
     ///////////////////////////////////////////////////////////////////////////
     namespace detail {
 
-        void decrement_refcnt(id_type_impl* p) noexcept
+        void decrement_refcnt(id_type_impl const* p) noexcept
         {
             // do nothing if it's too late in the game
             if (!get_runtime_ptr())
@@ -136,7 +137,7 @@ namespace hpx::naming {
                 if (gid_was_split(*p) || !agas::resolve_cached(*p, addr))
                 {
                     // decrement global reference count for the given gid,
-                    std::int64_t credits = detail::get_credit_from_gid(*p);
+                    std::int64_t const credits = get_credit_from_gid(*p);
                     HPX_ASSERT(0 != credits);
 
                     if (get_runtime_ptr())    // -V547
@@ -178,12 +179,25 @@ namespace hpx::naming {
         }
 
         ///////////////////////////////////////////////////////////////////////
-        hpx::future<gid_type> split_gid_if_needed(gid_type& gid)
+        hpx::future_or_value<gid_type> split_gid_if_needed(gid_type& gid)
         {
             std::unique_lock<gid_type::mutex_type> l(gid.get_mutex());
             return split_gid_if_needed_locked(l, gid);
         }
 
+        gid_type split_gid_if_needed(hpx::launch::sync_policy, gid_type& gid)
+        {
+            auto result = split_gid_if_needed(gid);
+            if (result.has_value())
+            {
+                return result.get_value();
+            }
+
+            HPX_ASSERT(result.has_future());
+            return result.get_future().get();
+        }
+
+        ///////////////////////////////////////////////////////////////////////
         gid_type postprocess_incref(gid_type& gid)
         {
             std::unique_lock<gid_type::mutex_type> l(gid.get_mutex());
@@ -206,13 +220,13 @@ namespace hpx::naming {
             // Get the current credit for our gid. If no other concurrent
             // split has happened since we invoked incref below, the credit
             // of this gid is equal to 2, otherwise it is larger.
-            std::int64_t src_credit = get_credit_from_gid(gid);
+            std::int64_t const src_credit = get_credit_from_gid(gid);
             HPX_ASSERT(src_credit >= 2);
 
-            std::int64_t split_credit =
+            constexpr std::int64_t split_credit =
                 static_cast<std::int64_t>(HPX_GLOBALCREDIT_INITIAL) - 2;
             std::int64_t new_credit = src_credit + split_credit;
-            std::int64_t overflow_credit = new_credit -
+            std::int64_t const overflow_credit = new_credit -
                 static_cast<std::int64_t>(HPX_GLOBALCREDIT_INITIAL);
             HPX_ASSERT(overflow_credit >= 0);
 
@@ -234,7 +248,7 @@ namespace hpx::naming {
             return new_gid;
         }
 
-        hpx::future<gid_type> split_gid_if_needed_locked(
+        hpx::future_or_value<gid_type> split_gid_if_needed_locked(
             std::unique_lock<gid_type::mutex_type>& l, gid_type& gid)
         {
             HPX_ASSERT_OWNS_LOCK(l);
@@ -258,7 +272,8 @@ namespace hpx::naming {
                 // credit is guaranteed to arrive only after we incremented the
                 // credit successfully in agas.
                 HPX_ASSERT(get_log2credit_from_gid(gid) > 0);
-                std::int16_t src_log2credits = get_log2credit_from_gid(gid);
+                std::int16_t const src_log2credits =
+                    get_log2credit_from_gid(gid);
 
                 // Credit exhaustion - we need to get more.
                 if (src_log2credits == 1)
@@ -279,15 +294,32 @@ namespace hpx::naming {
 
                     // We add HPX_GLOBALCREDIT_INITIAL credits for the new gid
                     // and HPX_GLOBALCREDIT_INITIAL - 2 for the old one.
-                    std::int64_t new_credit = 2 *
+                    constexpr std::int64_t new_credit = 2 *
                         (static_cast<std::int64_t>(HPX_GLOBALCREDIT_INITIAL) -
                             1);
 
-                    naming::gid_type new_gid = gid;    // strips lock-bit
+                    naming::gid_type const new_gid = gid;    // strips lock-bit
                     HPX_ASSERT(new_gid != invalid_gid);
-                    return agas::incref(new_gid, new_credit)
-                        .then(hpx::launch::sync,
-                            hpx::bind(postprocess_incref, std::ref(gid)));
+
+                    auto result = agas::incref(new_gid, new_credit);
+                    if (result.has_value())
+                    {
+                        try
+                        {
+                            return postprocess_incref(gid);
+                        }
+                        catch (...)
+                        {
+                            return hpx::make_exceptional_future<gid_type>(
+                                std::current_exception());
+                        }
+                    }
+
+                    return result.get_future().then(
+                        hpx::launch::sync, [&gid](auto&& f) {
+                            f.get();
+                            return postprocess_incref(gid);
+                        });
                 }
 
                 HPX_ASSERT(src_log2credits > 1);
@@ -297,11 +329,11 @@ namespace hpx::naming {
                 HPX_ASSERT(detail::has_credits(gid));
                 HPX_ASSERT(detail::has_credits(new_gid));
 
-                return hpx::make_ready_future(new_gid);
+                return new_gid;
             }
 
             naming::gid_type new_gid = gid;    // strips lock-bit
-            return hpx::make_ready_future(new_gid);
+            return new_gid;
         }
 
         ///////////////////////////////////////////////////////////////////////
@@ -338,7 +370,7 @@ namespace hpx::naming {
         {
             HPX_ASSERT_OWNS_LOCK(l);
 
-            std::uint16_t log2credits = get_log2credit_from_gid(id);
+            std::int16_t const log2credits = get_log2credit_from_gid(id);
             HPX_ASSERT(log2credits > 0);
 
             gid_type newid = id;    // strips lock-bit
@@ -362,21 +394,19 @@ namespace hpx::naming {
         std::int64_t replenish_credits_locked(
             std::unique_lock<gid_type::mutex_type>& l, gid_type& gid)
         {
-            std::int64_t added_credit = 0;
-
             HPX_ASSERT(0 == get_credit_from_gid(gid));
 
-            added_credit = naming::detail::fill_credit_for_gid(gid);
+            std::int64_t const added_credit =
+                naming::detail::fill_credit_for_gid(gid);
             naming::detail::set_credit_split_mask_for_gid(gid);
 
-            gid_type unlocked_gid = gid;    // strips lock-bit
+            gid_type const unlocked_gid = gid;    // strips lock-bit
 
-            std::int64_t result = 0;
+            std::int64_t result;
             {
                 hpx::unlock_guard<std::unique_lock<gid_type::mutex_type>> ul(l);
                 result = agas::incref(launch::sync, unlocked_gid, added_credit);
             }
-
             return result;
         }
 
@@ -403,10 +433,10 @@ namespace hpx::naming {
 
         std::int64_t fill_credit_for_gid(gid_type& id, std::int64_t credits)
         {
-            std::int64_t c = get_credit_from_gid(id);
+            std::int64_t const c = get_credit_from_gid(id);
             HPX_ASSERT(c <= credits);
 
-            std::int64_t added = credits - c;
+            std::int64_t const added = credits - c;
             set_credit_for_gid(id, credits);
 
             return added;
@@ -419,7 +449,7 @@ namespace hpx::naming {
         HPX_ASSERT(detail::gid_was_split(gid));
 
         // decrement global reference count for the given gid,
-        std::int64_t credits = detail::get_credit_from_gid(gid);
+        std::int64_t const credits = detail::get_credit_from_gid(gid);
         HPX_ASSERT(0 != credits);
 
         // Fire-and-forget semantics.
@@ -432,7 +462,7 @@ namespace hpx::naming {
 
         // custom deleter for managed gid_types, will be called when the last
         // copy of the corresponding hpx::id_type goes out of scope
-        void gid_managed_deleter(id_type_impl* p) noexcept
+        void gid_managed_deleter_impl(id_type_impl const* p) noexcept
         {
             // a credit of zero means the component is not (globally) reference
             // counted
@@ -450,10 +480,22 @@ namespace hpx::naming {
 
         // custom deleter for unmanaged gid_types, will be called when the last
         // copy of the corresponding hpx::id_type goes out of scope
-        void gid_unmanaged_deleter(id_type_impl* p) noexcept
+        void gid_unmanaged_deleter_impl(id_type_impl const* p) noexcept
         {
             delete p;    // delete local gid representation only
         }
+
+        // break cyclic dependency with naming_base
+        struct init_deleter_functions
+        {
+            init_deleter_functions()
+            {
+                gid_managed_deleter = &gid_managed_deleter_impl;
+                gid_unmanaged_deleter = &gid_unmanaged_deleter_impl;
+            }
+        };
+
+        init_deleter_functions init;
 
         ///////////////////////////////////////////////////////////////////////
         // prepare the given id, note: this function modifies the passed id
@@ -468,17 +510,26 @@ namespace hpx::naming {
             // preprocessing
             handle_futures.increment_future_count();
 
-            auto f = split_gid_if_needed(gid).then(hpx::launch::sync,
-                [&split_gids, &handle_futures, &gid](
-                    hpx::future<gid_type>&& gid_future) {
-                    HPX_UNUSED(handle_futures);
-                    HPX_ASSERT(handle_futures.has_futures());
-                    split_gids.add_gid(gid, gid_future.get());
-                });
+            auto result = split_gid_if_needed(gid);
+            if (result.has_value())
+            {
+                handle_futures.decrement_future_count();
+                split_gids.add_gid(gid, result.get_value());
+            }
+            else
+            {
+                auto f = result.get_future().then(hpx::launch::sync,
+                    [&split_gids, &handle_futures, &gid](
+                        hpx::future<gid_type>&& gid_future) {
+                        HPX_UNUSED(handle_futures);
+                        HPX_ASSERT(handle_futures.has_futures());
+                        split_gids.add_gid(gid, gid_future.get());
+                    });
 
-            handle_futures.await_future(
-                *traits::future_access<decltype(f)>::get_shared_state(f),
-                false);
+                handle_futures.await_future(
+                    *traits::future_access<decltype(f)>::get_shared_state(f),
+                    false);
+            }
         }
 
         void preprocess_gid(
@@ -551,7 +602,8 @@ namespace hpx::naming {
             {
                 preprocess_gid(id_impl, ar);
 
-                gid_serialization_data data{id_impl, type};
+                gid_serialization_data const data{
+                    static_cast<gid_type const&>(id_impl), type};
                 ar << data;
                 return;
             }
@@ -569,7 +621,7 @@ namespace hpx::naming {
             gid_type new_gid;
             if (hpx::id_type::management_type::unmanaged == type)
             {
-                new_gid = id_impl;
+                new_gid = static_cast<gid_type const&>(id_impl);
             }
             else if (hpx::id_type::management_type::managed_move_credit == type)
             {
@@ -587,12 +639,12 @@ namespace hpx::naming {
             }
 
 #if defined(HPX_DEBUG)
-            auto* split_gids = ar.try_get_extra_data<
+            auto const* split_gids = ar.try_get_extra_data<
                 serialization::detail::preprocess_gid_types>();
             HPX_ASSERT(!split_gids || !split_gids->has_gid(id_impl));
 #endif
 
-            gid_serialization_data data{new_gid, type};
+            gid_serialization_data const data{new_gid, type};
             ar << data;
         }
 

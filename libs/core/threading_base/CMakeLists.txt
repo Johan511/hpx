@@ -1,4 +1,4 @@
-# Copyright (c) 2019 The STE||AR-Group
+# Copyright (c) 2019-2023 The STE||AR-Group
 #
 # SPDX-License-Identifier: BSL-1.0
 # Distributed under the Boost Software License, Version 1.0. (See accompanying
@@ -73,6 +73,7 @@ set(threading_base_sources
     get_default_pool.cpp
     get_default_timer_service.cpp
     print.cpp
+    register_thread.cpp
     scheduler_base.cpp
     set_thread_state.cpp
     set_thread_state_timed.cpp

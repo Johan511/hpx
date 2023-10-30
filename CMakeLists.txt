@@ -60,7 +60,7 @@ endif()
 set(HPX_VERSION_MAJOR 1)
 set(HPX_VERSION_MINOR 10)
 set(HPX_VERSION_SUBMINOR 0)
-set(HPX_VERSION_DATE 20230502)
+set(HPX_VERSION_DATE 20230804)
 set(HPX_VERSION_TAG "-trunk")
 
 set(HPX_VERSION
@@ -937,6 +937,15 @@ hpx_option(
   CATEGORY "Profiling"
 )
 
+hpx_option(
+  HPX_WITH_FETCH_APEX
+  BOOL
+  "Use FetchContent to fetch APEX. By default an installed APEX will be used. (default: OFF)"
+  OFF
+  CATEGORY "Build Targets"
+  ADVANCED
+)
+
 if(HPX_WITH_APEX)
   hpx_add_config_define(HPX_HAVE_APEX) # tell HPX that we use APEX
   hpx_option(
@@ -1138,10 +1147,49 @@ if(HPX_WITH_NETWORKING)
     ADVANCED
   )
   hpx_option(
-    HPX_WITH_LCI_TAG STRING "LCI repository tag or branch" "v1.7.5"
+    HPX_WITH_LCI_TAG STRING "LCI repository tag or branch" "v1.7.6"
     CATEGORY "Build Targets"
     ADVANCED
   )
+  hpx_option(
+    HPX_WITH_PARCELPORT_LCI_LOG STRING
+    "Enable the LCI-parcelport-specific logger" OFF
+    CATEGORY "Parcelport"
+    ADVANCED
+  )
+  if(HPX_WITH_PARCELPORT_LCI_LOG)
+    hpx_add_config_define(HPX_HAVE_PARCELPORT_LCI_LOG)
+  endif()
+  hpx_option(
+    HPX_WITH_PARCELPORT_LCI_PCOUNTER STRING
+    "Enable the LCI-parcelport-specific performance counter" OFF
+    CATEGORY "Parcelport"
+    ADVANCED
+  )
+  if(HPX_WITH_PARCELPORT_LCI_PCOUNTER)
+    hpx_add_config_define(HPX_HAVE_PARCELPORT_LCI_PCOUNTER)
+  endif()
+
+  hpx_option(
+    HPX_WITH_PARCELPORT_GASNET BOOL "Enable the GASNET based parcelport." OFF
+    CATEGORY "Parcelport"
+  )
+  hpx_option(
+    HPX_WITH_FETCH_GASNET
+    BOOL
+    "Use FetchContent to fetch GASNET. By default an installed GASNET will be used. (default: OFF)."
+    OFF
+    CATEGORY "Build Targets"
+    ADVANCED
+  )
+  if(HPX_WITH_PARCELPORT_GASNET)
+    hpx_add_config_define(HPX_HAVE_PARCELPORT_GASNET)
+    hpx_option(
+      HPX_WITH_PARCELPORT_GASNET_CONDUIT STRING
+      "Define which conduit to use for the gasnet parcelport" "udp"
+      STRINGS "smp;udp;mpi;ofi;ucx"
+    )
+  endif()
 
   hpx_option(
     HPX_WITH_PARCELPORT_TCP BOOL "Enable the TCP based parcelport." ON
@@ -1180,7 +1228,10 @@ else(HPX_WITH_NETWORKING)
   )
 endif(HPX_WITH_NETWORKING)
 
-if((HPX_WITH_NETWORKING AND HPX_WITH_PARCELPORT_MPI) OR HPX_WITH_ASYNC_MPI)
+if((HPX_WITH_NETWORKING AND HPX_WITH_PARCELPORT_MPI)
+   OR HPX_WITH_ASYNC_MPI
+   OR ("${HPX_WITH_PARCELPORT_GASNET_CONDUIT}" STREQUAL "mpi")
+)
   # mpi parcelport settings
   hpx_option(
     HPX_WITH_PARCELPORT_MPI_ENV
@@ -1265,7 +1316,7 @@ hpx_option(
 )
 if(HPX_WITH_EXAMPLES_TBB)
   find_package(TBB)
-  if(NOT TBB_FOUND)
+  if(NOT Tbb_FOUND)
     set(HPX_WITH_EXAMPLES_TBB OFF)
   endif()
 endif()
@@ -1277,7 +1328,7 @@ hpx_option(
 )
 if(HPX_WITH_EXAMPLES_QTHREADS)
   find_package(QThreads)
-  if(NOT QTHREADS_FOUND)
+  if(NOT Qthreads_FOUND)
     set(HPX_WITH_EXAMPLES_QTHREADS OFF)
   endif()
 endif()
@@ -1290,7 +1341,7 @@ hpx_option(
 )
 if(HPX_WITH_EXAMPLES_HDF5)
   find_package(HDF5 COMPONENTS CXX)
-  if(NOT HDF5_FOUND)
+  if(NOT Hdf5_FOUND)
     set(HPX_WITH_EXAMPLES_HDF5 OFF)
   endif()
 endif()
@@ -1305,7 +1356,7 @@ if(NOT "${HPX_PLATFORM_UC}" STREQUAL "BLUEGENEQ")
   )
   if(HPX_WITH_EXAMPLES_QT4)
     find_package(Qt4)
-    if(NOT QT4_FOUND)
+    if(NOT Qt4_FOUND)
       set(HPX_WITH_EXAMPLES_QT4 OFF)
     endif()
   endif()
@@ -1403,6 +1454,13 @@ hpx_option(
 hpx_option(
   HPX_WITH_TESTS_DEBUG_LOG_DESTINATION STRING
   "Destination for test debug logs (default: cout)" "cout"
+  CATEGORY "Debugging"
+  ADVANCED
+)
+
+hpx_option(
+  HPX_WITH_TESTS_COMMAND_LINE STRING
+  "Add given command line options to all tests run" ""
   CATEGORY "Debugging"
   ADVANCED
 )
@@ -2125,12 +2183,19 @@ add_hpx_library_headers_noglob(hpx_external)
 # Setup plugins (set here cause if we include it inside plugins, it will not be
 # defined in src/CMakeLists.txt where we call add_static_parcelports)
 include(HPX_SetupMPI) # must come before APEX
-if((HPX_WITH_NETWORKING AND HPX_WITH_PARCELPORT_MPI) OR HPX_WITH_ASYNC_MPI)
+if((HPX_WITH_NETWORKING AND HPX_WITH_PARCELPORT_MPI)
+   OR HPX_WITH_ASYNC_MPI
+   OR ("${HPX_WITH_PARCELPORT_GASNET_CONDUIT}" STREQUAL "mpi")
+)
   hpx_setup_mpi()
 endif()
-include(HPX_SetupLCI)
 if(HPX_WITH_NETWORKING AND HPX_WITH_PARCELPORT_LCI)
+  include(HPX_SetupLCI)
   hpx_setup_lci()
+endif()
+if(HPX_WITH_NETWORKING AND HPX_WITH_PARCELPORT_GASNET)
+  include(HPX_SetupGasnet)
+  hpx_setup_gasnet()
 endif()
 
 # Setup packages and subprojects
@@ -2199,6 +2264,21 @@ include(HPX_GitCommit)
 hpx_add_config_define(HPX_HAVE_GIT_COMMIT "\"${HPX_WITH_GIT_COMMIT}\"")
 
 hpx_include(SetOutputPaths)
+
+# ##############################################################################
+# Fixing git tag, if necessary
+hpx_debug("HPX_WITH_GIT_TAG: " ${HPX_WITH_GIT_TAG})
+hpx_debug("HPX_WITH_GIT_BRANCH: " ${HPX_WITH_GIT_BRANCH})
+
+if(HPX_WITH_GIT_BRANCH AND ((NOT HPX_WITH_GIT_TAG) OR "${HPX_WITH_GIT_TAG}x"
+                                                      STREQUAL "x")
+)
+  string(REGEX MATCH "^release-[0-9]+.[0-9]+.X$" matched ${HPX_WITH_GIT_BRANCH})
+  if(matched)
+    set(HPX_WITH_GIT_TAG "v${HPX_VERSION}")
+    hpx_info("Setting HPX_WITH_GIT_TAG to: " "${HPX_WITH_GIT_TAG}")
+  endif()
+endif()
 
 # ##############################################################################
 # Add custom targets for tests
@@ -2295,12 +2375,23 @@ add_subdirectory(components)
 # ##############################################################################
 # Tests
 # ##############################################################################
-find_package(PythonInterp)
+if(POLICY CMP0148)
+  find_package(Python COMPONENTS Interpreter)
+  if(NOT Python_FOUND)
+    hpx_warn(
+      "A python interpreter could not be found. The test suite can not be run automatically."
+    )
+  endif()
 
-if(NOT PYTHONINTERP_FOUND)
-  hpx_warn(
-    "A python interpreter could not be found. The test suite can not be run automatically."
-  )
+else()
+  find_package(PythonInterp)
+  if(NOT PYTHONINTERP_FOUND)
+    hpx_warn(
+      "A python interpreter could not be found. The test suite can not be run automatically."
+    )
+  else()
+    set(Python_EXECUTABLE ${PYTHON_EXECUTABLE})
+  endif()
 endif()
 
 if(HPX_WITH_TESTS)
@@ -2326,7 +2417,7 @@ if(HPX_WITH_TOOLS OR HPX_WITH_TESTS_BENCHMARKS)
 endif()
 
 # Configure hpxrun.py
-if(PYTHONINTERP_FOUND)
+if(PYTHONINTERP_FOUND OR Python_FOUND)
   configure_file(
     "${PROJECT_SOURCE_DIR}/cmake/templates/hpxrun.py.in"
     "${PROJECT_BINARY_DIR}/bin/hpxrun.py" @ONLY
@@ -2451,7 +2542,7 @@ endif()
 # ##############################################################################
 # installation instructions
 # ##############################################################################
-if(PYTHONINTERP_FOUND)
+if(PYTHONINTERP_FOUND OR Python_FOUND)
   install(
     FILES "${PROJECT_BINARY_DIR}/bin/hpxrun.py"
     DESTINATION ${CMAKE_INSTALL_BINDIR}

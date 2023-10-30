@@ -57,10 +57,11 @@ namespace hpx::threads::policies {
     /// scheduler policies
     struct scheduler_base
     {
-    public:
-        HPX_NON_COPYABLE(scheduler_base);
+        scheduler_base(scheduler_base const&) = delete;
+        scheduler_base(scheduler_base&&) = delete;
+        scheduler_base& operator=(scheduler_base const&) = delete;
+        scheduler_base& operator=(scheduler_base&&) = delete;
 
-    public:
         using pu_mutex_type = std::mutex;
 
         explicit scheduler_base(std::size_t num_threads,
@@ -239,7 +240,7 @@ namespace hpx::threads::policies {
             std::size_t num_thread = std::size_t(-1)) const = 0;
 #endif
 
-        virtual void reset_thread_distribution() {}
+        virtual void reset_thread_distribution() noexcept {}
 
         std::ptrdiff_t get_stack_size(
             threads::thread_stacksize stacksize) const noexcept;
@@ -269,6 +270,12 @@ namespace hpx::threads::policies {
 
         detail::polling_status custom_polling_function() const;
         std::size_t get_polling_work_count() const;
+
+        // almost all schedulers support direct execution
+        virtual bool supports_direct_execution() const noexcept
+        {
+            return true;
+        }
 
     protected:
         // the scheduler mode, protected from false sharing

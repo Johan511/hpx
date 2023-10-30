@@ -297,7 +297,7 @@ namespace hpx { namespace threads {
             }
         }
 
-        void reset_thread_distribution()
+        void reset_thread_distribution() noexcept
         {
             for (auto& pool_iter : pools_)
             {
@@ -423,6 +423,12 @@ namespace hpx { namespace threads {
             thread_pool_init_parameters const&,
             policies::thread_queue_init_parameters const&, std::size_t);
         void create_scheduler_shared_priority(
+            thread_pool_init_parameters const&,
+            policies::thread_queue_init_parameters const&, std::size_t);
+        void create_scheduler_local_workrequesting_fifo(
+            thread_pool_init_parameters const&,
+            policies::thread_queue_init_parameters const&, std::size_t);
+        void create_scheduler_local_workrequesting_lifo(
             thread_pool_init_parameters const&,
             policies::thread_queue_init_parameters const&, std::size_t);
 

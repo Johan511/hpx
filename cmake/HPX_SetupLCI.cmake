@@ -9,13 +9,23 @@
 
 macro(hpx_setup_lci)
   if(NOT TARGET LCI::LCI)
+
+    # compatibility with older CMake versions
+    if(LCI_ROOT AND NOT Lci_ROOT)
+      set(Lci_ROOT
+          ${LCI_ROOT}
+          CACHE PATH "LCI base directory"
+      )
+      unset(LCI_ROOT CACHE)
+    endif()
+
     if(NOT HPX_WITH_FETCH_LCI)
       find_package(
         LCI
         CONFIG
         REQUIRED
         HINTS
-        ${LCI_ROOT}
+        ${Lci_ROOT}
         $ENV{LCI_ROOT}
         PATH_SUFFIXES
         lib/cmake
@@ -77,7 +87,7 @@ macro(hpx_setup_lci)
       endif()
 
       install(
-        TARGETS LCI lci-ucx
+        TARGETS LCI LCT lci-ucx
         EXPORT HPXLCITarget
         COMPONENT core
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -85,7 +95,8 @@ macro(hpx_setup_lci)
       )
 
       install(
-        DIRECTORY ${lci_SOURCE_DIR}/src/api/ ${lci_BINARY_DIR}/src/api/
+        DIRECTORY ${lci_SOURCE_DIR}/lci/api/ ${lci_BINARY_DIR}/lci/api/
+                  ${lci_SOURCE_DIR}/lct/api/ ${lci_BINARY_DIR}/lct/api/
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
         COMPONENT core
         FILES_MATCHING
@@ -93,7 +104,7 @@ macro(hpx_setup_lci)
       )
 
       export(
-        TARGETS LCI lci-ucx
+        TARGETS LCI LCT lci-ucx
         NAMESPACE LCI::
         FILE "${CMAKE_CURRENT_BINARY_DIR}/lib/cmake/${HPX_PACKAGE_NAME}/HPXLCITarget.cmake"
       )

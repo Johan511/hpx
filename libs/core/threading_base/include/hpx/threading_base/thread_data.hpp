@@ -9,6 +9,8 @@
 #pragma once
 
 #include <hpx/config.hpp>
+#include <hpx/assert.hpp>
+
 #include <hpx/concurrency/spinlock_pool.hpp>
 #include <hpx/coroutines/coroutine.hpp>
 #include <hpx/coroutines/detail/combined_tagged_state.hpp>
@@ -18,9 +20,9 @@
 #include <hpx/functional/function.hpp>
 #include <hpx/modules/errors.hpp>
 #include <hpx/modules/logging.hpp>
-#include <hpx/modules/memory.hpp>
 #include <hpx/threading_base/thread_description.hpp>
 #include <hpx/threading_base/thread_init_data.hpp>
+#include <hpx/threading_base/threading_base_fwd.hpp>
 #if defined(HPX_HAVE_APEX)
 #include <hpx/threading_base/external_timer.hpp>
 #endif
@@ -31,9 +33,11 @@
 #include <forward_list>
 #include <memory>
 #include <mutex>
-#include <stack>
-#include <string>
 #include <utility>
+
+#if defined(HPX_HAVE_THREAD_BACKTRACE_ON_SUSPENSION)
+#include <string>
+#endif
 
 #include <hpx/config/warnings_prefix.hpp>
 
@@ -46,15 +50,6 @@ namespace hpx::threads {
         HPX_CORE_EXPORT void set_get_locality_id(get_locality_id_type* f);
         HPX_CORE_EXPORT std::uint32_t get_locality_id(hpx::error_code&);
     }    // namespace detail
-
-    ////////////////////////////////////////////////////////////////////////////
-    class HPX_CORE_EXPORT thread_data;    // forward declaration only
-
-    ////////////////////////////////////////////////////////////////////////////
-    /// The function \a get_self_id_data returns the data of the HPX thread id
-    /// associated with the current thread (or nullptr if the current thread is
-    /// not a HPX thread).
-    HPX_CORE_EXPORT thread_data* get_self_id_data() noexcept;
 
     ////////////////////////////////////////////////////////////////////////////
     /// A \a thread is the representation of a HPX thread. It's a first class
@@ -107,7 +102,7 @@ namespace hpx::threads {
         ///
         /// \note           This function will be seldom used directly. Most of
         ///                 the time the state of a thread will have to be
-        ///                 changed using the threadmanager. Moreover,
+        ///                 changed using the thread-manager. Moreover,
         ///                 changing the thread state using this function does
         ///                 not change its scheduling status. It only sets the
         ///                 thread's status word. To change the thread's
@@ -361,7 +356,7 @@ namespace hpx::threads {
         {
             return nullptr;
         }
-        static char const* set_backtrace(char const*) noexcept
+        static constexpr char const* set_backtrace(char const*) noexcept
         {
             return nullptr;
         }
@@ -370,7 +365,7 @@ namespace hpx::threads {
         {
             return nullptr;
         }
-        static util::backtrace const* set_backtrace(
+        static constexpr util::backtrace const* set_backtrace(
             util::backtrace const*) noexcept
         {
             return nullptr;
@@ -485,6 +480,14 @@ namespace hpx::threads {
         void run_thread_exit_callbacks();
         void free_thread_exit_callbacks();
 
+        // no need to protect the variables related to scoped children as those
+        // are supposed to be accessed by ourselves only
+        bool runs_as_child(
+            std::memory_order mo = std::memory_order_acquire) const noexcept
+        {
+            return runs_as_child_.load(mo);
+        }
+
         HPX_FORCEINLINE constexpr bool is_stackless() const noexcept
         {
             return is_stackless_;
@@ -533,6 +536,14 @@ namespace hpx::threads {
         inline coroutine_type::result_type operator()(
             hpx::execution_base::this_thread::detail::agent_storage*
                 agent_storage);
+
+        /// \brief Directly execute the thread function (inline)
+        ///
+        /// \returns        This function returns the thread state the thread
+        ///                 should be scheduled from this point on. The thread
+        ///                 manager will use the returned value to set the
+        ///                 thread's scheduling status.
+        inline coroutine_type::result_type invoke_directly();
 
         virtual thread_id_type get_thread_id() const
         {
@@ -623,6 +634,9 @@ namespace hpx::threads {
         bool ran_exit_funcs_;
         bool const is_stackless_;
 
+        // support scoped child execution
+        std::atomic<bool> runs_as_child_;
+
         // Singly linked list (heap-allocated)
         std::forward_list<hpx::function<void()>> exit_funcs_;
 
@@ -641,86 +655,17 @@ namespace hpx::threads {
 #endif
     };
 
-    HPX_FORCEINLINE thread_data* get_thread_id_data(
+    HPX_FORCEINLINE constexpr thread_data* get_thread_id_data(
         thread_id_ref_type const& tid) noexcept
     {
         return static_cast<thread_data*>(tid.get().get());
     }
 
-    HPX_FORCEINLINE thread_data* get_thread_id_data(
+    HPX_FORCEINLINE constexpr thread_data* get_thread_id_data(
         thread_id_type const& tid) noexcept
     {
         return static_cast<thread_data*>(tid.get());
     }
-
-    namespace detail {
-
-        HPX_CORE_EXPORT void set_self_ptr(thread_self*) noexcept;
-    }
-
-    ///////////////////////////////////////////////////////////////////////
-    /// The function \a get_self returns a reference to the (OS thread
-    /// specific) self reference to the current HPX thread.
-    HPX_CORE_EXPORT thread_self& get_self();
-
-    /// The function \a get_self_ptr returns a pointer to the (OS thread
-    /// specific) self reference to the current HPX thread.
-    HPX_CORE_EXPORT thread_self* get_self_ptr() noexcept;
-
-    /// The function \a get_ctx_ptr returns a pointer to the internal data
-    /// associated with each coroutine.
-    HPX_CORE_EXPORT thread_self_impl_type* get_ctx_ptr();
-
-    /// The function \a get_self_ptr_checked returns a pointer to the (OS
-    /// thread specific) self reference to the current HPX thread.
-    HPX_CORE_EXPORT thread_self* get_self_ptr_checked(error_code& ec = throws);
-
-    /// The function \a get_self_id returns the HPX thread id of the current
-    /// thread (or zero if the current thread is not a HPX thread).
-    HPX_CORE_EXPORT thread_id_type get_self_id() noexcept;
-
-    /// The function \a get_parent_id returns the HPX thread id of the
-    /// current thread's parent (or zero if the current thread is not a
-    /// HPX thread).
-    ///
-    /// \note This function will return a meaningful value only if the
-    ///       code was compiled with HPX_HAVE_THREAD_PARENT_REFERENCE
-    ///       being defined.
-    HPX_CORE_EXPORT thread_id_type get_parent_id() noexcept;
-
-    /// The function \a get_parent_phase returns the HPX phase of the
-    /// current thread's parent (or zero if the current thread is not a
-    /// HPX thread).
-    ///
-    /// \note This function will return a meaningful value only if the
-    ///       code was compiled with HPX_HAVE_THREAD_PARENT_REFERENCE
-    ///       being defined.
-    HPX_CORE_EXPORT std::size_t get_parent_phase() noexcept;
-
-    /// The function \a get_self_stacksize returns the stack size of the
-    /// current thread (or zero if the current thread is not a HPX thread).
-    HPX_CORE_EXPORT std::ptrdiff_t get_self_stacksize() noexcept;
-
-    /// The function \a get_self_stacksize_enum returns the stack size of the /
-    //current thread (or thread_stacksize::default if the current thread is not
-    //a HPX thread).
-    HPX_CORE_EXPORT thread_stacksize get_self_stacksize_enum() noexcept;
-
-    /// The function \a get_parent_locality_id returns the id of the locality of
-    /// the current thread's parent (or zero if the current thread is not a
-    /// HPX thread).
-    ///
-    /// \note This function will return a meaningful value only if the
-    ///       code was compiled with HPX_HAVE_THREAD_PARENT_REFERENCE
-    ///       being defined.
-    HPX_CORE_EXPORT std::uint32_t get_parent_locality_id() noexcept;
-
-    /// The function \a get_self_component_id returns the lva of the component
-    /// the current thread is acting on
-    ///
-    /// \note This function will return a meaningful value only if the code was
-    ///       compiled with HPX_HAVE_THREAD_TARGET_ADDRESS being defined.
-    HPX_CORE_EXPORT std::uint64_t get_self_component_id() noexcept;
 }    // namespace hpx::threads
 
 #include <hpx/config/warnings_suffix.hpp>
@@ -733,10 +678,24 @@ namespace hpx::threads {
     HPX_FORCEINLINE coroutine_type::result_type thread_data::operator()(
         hpx::execution_base::this_thread::detail::agent_storage* agent_storage)
     {
+        // once a thread has started it can't be run directly anymore
+        runs_as_child_.store(false, std::memory_order_release);
+
         if (is_stackless())
         {
             return static_cast<thread_data_stackless*>(this)->call();
         }
         return static_cast<thread_data_stackful*>(this)->call(agent_storage);
+    }
+
+    HPX_FORCEINLINE coroutine_type::result_type thread_data::invoke_directly()
+    {
+        HPX_ASSERT(runs_as_child(std::memory_order_relaxed));
+
+        if (is_stackless())
+        {
+            return static_cast<thread_data_stackless*>(this)->call();
+        }
+        return static_cast<thread_data_stackful*>(this)->invoke_directly();
     }
 }    // namespace hpx::threads

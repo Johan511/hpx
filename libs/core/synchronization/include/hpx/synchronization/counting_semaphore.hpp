@@ -1,4 +1,4 @@
-//  Copyright (c) 2007-2022 Hartmut Kaiser
+//  Copyright (c) 2007-2023 Hartmut Kaiser
 //  Copyright (c)      2011 Bryce Lelbach
 //
 //  SPDX-License-Identifier: BSL-1.0
@@ -10,6 +10,7 @@
 #pragma once
 
 #include <hpx/config.hpp>
+#include <hpx/modules/memory.hpp>
 #include <hpx/synchronization/detail/counting_semaphore.hpp>
 #include <hpx/synchronization/spinlock.hpp>
 #include <hpx/timing/steady_clock.hpp>
@@ -76,7 +77,7 @@ namespace hpx {
     ///        \namedrequirement{CopyAssignable},
     ///        or \namedrequirement{MoveAssignable}.
     ///
-    /// \note \a couting_semaphore's \a try_acquire() can spuriously fail.
+    /// \note \a counting_semaphore's \a try_acquire() can spuriously fail.
     ///
     /// \tparam LeastMaxValue \a counting_semaphore allows more than one
     ///                        concurrent access to the same resource, for
@@ -350,6 +351,8 @@ namespace hpx {
 
         protected:
             using mutex_type = Mutex;
+            using data_type =
+                lcos::local::detail::counting_semaphore_data<mutex_type>;
 
         public:
             static constexpr std::ptrdiff_t(max)() noexcept
@@ -358,7 +361,7 @@ namespace hpx {
             }
 
             explicit counting_semaphore(std::ptrdiff_t value) noexcept
-              : sem_(value)
+              : data_(new data_type(value), false)
             {
             }
 
@@ -366,27 +369,31 @@ namespace hpx {
 
             void release(std::ptrdiff_t update = 1)
             {
-                std::unique_lock<mutex_type> l(mtx_);
-                sem_.signal(HPX_MOVE(l), update);
+                auto data = data_;    //keep alive
+                std::unique_lock<mutex_type> l(data->mtx_);
+                data->sem_.signal(HPX_MOVE(l), update);
             }
 
             bool try_acquire() noexcept
             {
-                std::unique_lock<mutex_type> l(mtx_);
-                return sem_.try_acquire(l);
+                auto data = data_;    //keep alive
+                std::unique_lock<mutex_type> l(data->mtx_);
+                return data->sem_.try_acquire(l);
             }
 
             void acquire()
             {
-                std::unique_lock<mutex_type> l(mtx_);
-                sem_.wait(l, 1);
+                auto data = data_;    //keep alive
+                std::unique_lock<mutex_type> l(data->mtx_);
+                data->sem_.wait(l, 1);
             }
 
             bool try_acquire_until(
                 hpx::chrono::steady_time_point const& abs_time)
             {
-                std::unique_lock<mutex_type> l(mtx_);
-                return sem_.wait_until(l, abs_time, 1);
+                auto data = data_;    //keep alive
+                std::unique_lock<mutex_type> l(data->mtx_);
+                return data->sem_.wait_until(l, abs_time, 1);
             }
 
             bool try_acquire_for(hpx::chrono::steady_duration const& rel_time)
@@ -395,8 +402,7 @@ namespace hpx {
             }
 
         protected:
-            mutable mutex_type mtx_;
-            hpx::lcos::local::detail::counting_semaphore sem_;
+            hpx::intrusive_ptr<data_type> data_;
         };
     }    // namespace detail
 
@@ -410,6 +416,7 @@ namespace hpx {
     {
     private:
         using mutex_type = Mutex;
+        using detail::counting_semaphore<PTRDIFF_MAX, Mutex>::data_;
 
     public:
         explicit counting_semaphore_var(std::ptrdiff_t value = N) noexcept
@@ -420,29 +427,35 @@ namespace hpx {
         counting_semaphore_var(counting_semaphore_var const&) = delete;
         counting_semaphore_var& operator=(
             counting_semaphore_var const&) = delete;
+        counting_semaphore_var(counting_semaphore_var&&) = delete;
+        counting_semaphore_var& operator=(counting_semaphore_var&&) = delete;
 
         void wait(std::ptrdiff_t count = 1)
         {
-            std::unique_lock<mutex_type> l(this->mtx_);
-            this->sem_.wait(l, count);
+            auto data = data_;    //keep alive
+            std::unique_lock<mutex_type> l(data->mtx_);
+            data->sem_.wait(l, count);
         }
 
         bool try_wait(std::ptrdiff_t count = 1)
         {
-            std::unique_lock<mutex_type> l(this->mtx_);
-            return this->sem_.try_wait(l, count);
+            auto data = data_;    //keep alive
+            std::unique_lock<mutex_type> l(data->mtx_);
+            return data->sem_.try_wait(l, count);
         }
 
         void signal(std::ptrdiff_t count = 1)
         {
-            std::unique_lock<mutex_type> l(this->mtx_);
-            this->sem_.signal(HPX_MOVE(l), count);
+            auto data = data_;    //keep alive
+            std::unique_lock<mutex_type> l(data->mtx_);
+            data->sem_.signal(HPX_MOVE(l), count);
         }
 
         std::ptrdiff_t signal_all()
         {
-            std::unique_lock<mutex_type> l(this->mtx_);
-            return this->sem_.signal_all(HPX_MOVE(l));
+            auto data = data_;    //keep alive
+            std::unique_lock<mutex_type> l(data->mtx_);
+            return data->sem_.signal_all(HPX_MOVE(l));
         }
     };
 }    // namespace hpx

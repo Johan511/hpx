@@ -57,6 +57,36 @@
 #include <thread>
 #include <utility>
 
+#if defined(HPX_HAVE_LOGGING)
+namespace hpx { namespace detail {
+    void try_log_runtime_threads()
+    {
+        // This may be used in non-valid runtime states, let it fail silently
+        try
+        {
+            auto rt = hpx::get_runtime_ptr();
+            if (rt == nullptr)
+                return;
+
+            rt->get_thread_manager().enumerate_threads(
+                [](hpx::threads::thread_id_type id) -> bool {
+                    hpx::threads::thread_data* td = get_thread_id_data(id);
+                    auto sched = td->get_scheduler_base();
+                    LTM_(debug).format("Logging all runtime threads: pool({}), "
+                                       "scheduler({}),"
+                                       "thread({}), description({}), state({})",
+                        sched->get_parent_pool(), sched, id,
+                        td->get_description(), td->get_state().state());
+                    return true;
+                });
+        }
+        catch (...)
+        {
+        }
+    }
+}};    // namespace hpx::detail
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////
 // Make sure the system gets properly shut down while handling Ctrl-C and other
 // system signals
@@ -89,6 +119,11 @@ namespace hpx {
                 std::cerr << "{stack-trace}: " << hpx::util::trace(trace_depth)
                           << "\n";
             }
+#endif
+
+#if defined(HPX_HAVE_LOGGING)
+            LRT_(debug).format("Terminating due to system signal({})", reason);
+            hpx::detail::try_log_runtime_threads();
 #endif
 
             std::cerr << "{what}: " << (reason ? reason : "Unknown reason")
@@ -162,6 +197,11 @@ namespace hpx {
                 std::cerr << "{stack-trace}: " << hpx::util::trace(trace_depth)
                           << "\n";
             }
+#endif
+
+#if defined(HPX_HAVE_LOGGING)
+            LRT_(debug).format("Terminating due to system signal({})", signum);
+            hpx::detail::try_log_runtime_threads();
 #endif
 
             std::cerr << "{what}: " << (reason ? reason : "Unknown reason")
@@ -649,6 +689,17 @@ namespace hpx {
     std::string runtime::get_locality_name() const
     {
         return "console";
+    }
+
+    std::uint32_t runtime::assign_cores(std::string const&, std::uint32_t)
+    {
+        return 0;
+    }
+
+    std::uint32_t runtime::assign_cores()
+    {
+        return static_cast<std::uint32_t>(
+            hpx::resource::get_partitioner().assign_cores(0));
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -1413,7 +1464,6 @@ namespace hpx {
         // see: http://connect.microsoft.com/VisualStudio/feedback/ViewFeedback.aspx?FeedbackID=100319
         _isatty(0);
 #endif
-        // {{{ early startup code - local
 
         // initialize instrumentation system
 #ifdef HPX_HAVE_APEX
@@ -1437,20 +1487,26 @@ namespace hpx {
                 "I/O service pool";
 #endif
         // start the thread manager
-        thread_manager_->run();
+        if (!thread_manager_->run())
+        {
+            std::cerr << "runtime::start: failed to start threadmanager\n";
+            return -1;
+        }
+
         lbt_ << "(1st stage) runtime::start: started threadmanager";
-        // }}}
 
         // {{{ launch main
         // register the given main function with the thread manager
         lbt_ << "(1st stage) runtime::start: launching run_helper "
                 "HPX thread";
 
-        threads::thread_init_data data(
-            hpx::bind(&runtime::run_helper, this, func, std::ref(result_), true,
-                &detail::handle_print_bind),
-            "run_helper", threads::thread_priority::normal,
-            threads::thread_schedule_hint(0), threads::thread_stacksize::large);
+        threads::thread_function_type thread_func =
+            threads::make_thread_function(hpx::bind(&runtime::run_helper, this,
+                func, std::ref(result_), true, &detail::handle_print_bind));
+
+        threads::thread_init_data data(HPX_MOVE(thread_func), "run_helper",
+            threads::thread_priority::normal, threads::thread_schedule_hint(0),
+            threads::thread_stacksize::large);
 
         this->runtime::starting();
         threads::thread_id_ref_type id = threads::invalid_thread_id;
@@ -1462,13 +1518,11 @@ namespace hpx {
         {
             return wait();    // wait for the shutdown_action to be executed
         }
-        else
-        {
-            // wait for at least hpx::state::running
-            util::yield_while(
-                [this]() { return get_state() < hpx::state::running; },
-                "runtime::start");
-        }
+
+        // wait for at least hpx::state::running
+        util::yield_while(
+            [this]() { return get_state() < hpx::state::running; },
+            "runtime::start");
 
         return 0;    // return zero as we don't know the outcome of hpx_main yet
     }

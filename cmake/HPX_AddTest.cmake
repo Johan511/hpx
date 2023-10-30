@@ -6,7 +6,7 @@
 
 function(add_hpx_test category name)
   set(options FAILURE_EXPECTED RUN_SERIAL NO_PARCELPORT_TCP NO_PARCELPORT_MPI
-              NO_PARCELPORT_LCI
+              NO_PARCELPORT_LCI NO_PARCELPORT_GASNET
   )
   set(one_value_args EXECUTABLE LOCALITIES THREADS_PER_LOCALITY TIMEOUT
                      RUNWRAPPER
@@ -68,6 +68,11 @@ function(add_hpx_test category name)
     )
   endif()
 
+  # add additional command line arguments to all test executions
+  if(NOT x${HPX_WITH_TESTS_COMMAND_LINE} STREQUAL x"")
+    set(args ${args} "${HPX_WITH_TESTS_COMMAND_LINE}")
+  endif()
+
   if(${HPX_WITH_PARALLEL_TESTS_BIND_NONE}
      AND NOT run_serial
      AND NOT "${name}_RUNWRAPPER"
@@ -82,9 +87,19 @@ function(add_hpx_test category name)
     set(_script_location ${PROJECT_BINARY_DIR})
   endif()
 
+  if(PYTHON_EXECUTABLE AND NOT Python_EXECUTABLE)
+    set(Python_EXECUTABLE ${PYTHON_EXECUTABLE})
+  endif()
+
+  set(ENV_VAR "")
+  if(HPX_WITH_PARCELPORT_GASNET)
+    set(ENV_VAR "GASNET_PSHM_NODES=2")
+  endif()
+
   # cmake-format: off
   set(cmd
-      "${PYTHON_EXECUTABLE}"
+      ${ENV_VAR}
+      "${Python_EXECUTABLE}"
       "${_script_location}/bin/hpxrun.py"
       ${CMAKE_CROSSCOMPILING_EMULATOR}
       ${_exe}
@@ -163,6 +178,30 @@ function(add_hpx_test category name)
         set(_full_name "${category}.distributed.lci.${name}")
         add_test(NAME "${_full_name}" COMMAND ${cmd} "-p" "lci" "-r" "mpi"
                                               ${args}
+        )
+        set_tests_properties("${_full_name}" PROPERTIES RUN_SERIAL TRUE)
+        if(${name}_TIMEOUT)
+          set_tests_properties(
+            "${_full_name}" PROPERTIES TIMEOUT ${${name}_TIMEOUT}
+          )
+        endif()
+      endif()
+    endif()
+    if(HPX_WITH_PARCELPORT_GASNET AND NOT ${name}_NO_PARCELPORT_GASNET)
+      set(_add_test FALSE)
+      if(DEFINED ${name}_PARCELPORTS)
+        set(PP_FOUND -1)
+        list(FIND ${name}_PARCELPORTS "gasnet" PP_FOUND)
+        if(NOT PP_FOUND EQUAL -1)
+          set(_add_test TRUE)
+        endif()
+      else()
+        set(_add_test TRUE)
+      endif()
+      if(_add_test)
+        set(_full_name "${category}.distributed.gasnet.${name}")
+        add_test(NAME "${_full_name}" COMMAND ${cmd} "-p" "gasnet" "-r"
+                                              "gasnet" ${args}
         )
         set_tests_properties("${_full_name}" PROPERTIES RUN_SERIAL TRUE)
         if(${name}_TIMEOUT)

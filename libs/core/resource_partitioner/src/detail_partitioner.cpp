@@ -142,6 +142,12 @@ namespace hpx::resource::detail {
         case resource::scheduling_policy::local_priority_lifo:
             sched = "local_priority_lifo";
             break;
+        case resource::scheduling_policy::local_workrequesting_fifo:
+            sched = "local_workrequesting_fifo";
+            break;
+        case resource::scheduling_policy::local_workrequesting_lifo:
+            sched = "local_workrequesting_lifo";
+            break;
         case resource::scheduling_policy::static_:
             sched = "static";
             break;
@@ -474,6 +480,18 @@ namespace hpx::resource::detail {
             std::string("local-priority-lifo").find(default_scheduler_str))
         {
             default_scheduler = scheduling_policy::local_priority_lifo;
+        }
+        else if (0 ==
+            std::string("local-workrequesting-fifo")
+                .find(default_scheduler_str))
+        {
+            default_scheduler = scheduling_policy::local_workrequesting_fifo;
+        }
+        else if (0 ==
+            std::string("local-workrequesting-lifo")
+                .find(default_scheduler_str))
+        {
+            default_scheduler = scheduling_policy::local_workrequesting_lifo;
         }
         else if (0 == std::string("static").find(default_scheduler_str))
         {
@@ -948,6 +966,8 @@ namespace hpx::resource::detail {
         affinity_data_ = affinity_data;
 
         fill_topology_vectors();
+
+        pus_needed_ = assign_cores(0);
     }
 
     scheduler_function partitioner::get_pool_creator(std::size_t index) const

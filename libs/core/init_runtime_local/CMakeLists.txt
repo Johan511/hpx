@@ -12,11 +12,13 @@ set(init_runtime_local_headers hpx/init_runtime_local/detail/init_logging.hpp
                                hpx/init_runtime_local/init_runtime_local.hpp
 )
 
-set(generated_init_runtime_local_headers hpx/init.hpp)
+if(NOT HPX_WITH_DISTRIBUTED_RUNTIME)
+  set(generated_init_runtime_local_headers hpx/init.hpp)
+endif()
 
 set(init_runtime_local_sources init_logging.cpp init_runtime_local.cpp)
 
-# The headers in hpx/local/ were deprecated in HPX V1.10.0
+# The headers in hpx/local/ were deprecated in HPX V1.9.1
 # cmake-format: off
 set(init_runtime_local_compat_headers
     hpx/local/init.hpp => hpx/init.hpp

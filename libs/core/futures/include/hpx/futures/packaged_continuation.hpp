@@ -10,6 +10,7 @@
 #include <hpx/config.hpp>
 #include <hpx/allocator_support/allocator_deleter.hpp>
 #include <hpx/allocator_support/internal_allocator.hpp>
+#include <hpx/assert.hpp>
 #include <hpx/async_base/launch_policy.hpp>
 #include <hpx/errors/try_catch_exception_ptr.hpp>
 #include <hpx/futures/detail/future_data.hpp>
@@ -153,10 +154,17 @@ namespace hpx::lcos::detail {
                 if (threads::get_self_ptr() != nullptr)
                     target.set_id(threads::get_self_id());
             }
+
+            reset_id(reset_id const&) = delete;
+            reset_id(reset_id&&) = delete;
+            reset_id& operator=(reset_id const&) = delete;
+            reset_id& operator=(reset_id&&) = delete;
+
             ~reset_id()
             {
                 target_.set_id(threads::invalid_thread_id);
             }
+
             continuation& target_;
         };
 
@@ -167,7 +175,7 @@ namespace hpx::lcos::detail {
             typename Enable = std::enable_if_t<
                 !std::is_same_v<std::decay_t<Func>, continuation>>>
         // NOLINTNEXTLINE(bugprone-forwarding-reference-overload)
-        continuation(Func&& f)
+        explicit continuation(Func&& f)
           : started_(false)
           , id_(threads::invalid_thread_id)
           , f_(HPX_FORWARD(Func, f))
@@ -192,7 +200,6 @@ namespace hpx::lcos::detail {
                 HPX_THROW_EXCEPTION(hpx::error::task_already_started,
                     "continuation::ensure_started",
                     "this task has already been started");
-                return;
             }
             started_ = true;
         }
@@ -225,15 +232,15 @@ namespace hpx::lcos::detail {
         {
             ensure_started();
 
+            HPX_ASSERT(!this->runs_child_);
+
             hpx::intrusive_ptr<continuation> this_(this);
             hpx::threads::thread_description desc(f_, "async");
-
             spawner(
                 [this_ = HPX_MOVE(this_), f = HPX_MOVE(f)]() mutable -> void {
-                    reset_id r(*this_);
                     this_->template run_impl<Unwrap>(HPX_MOVE(f));
                 },
-                desc);
+                desc, this->runs_child_);
         }
 
     public:
@@ -254,8 +261,8 @@ namespace hpx::lcos::detail {
                     if (this->is_ready())
                         return;    // nothing we can do
 
-                    // 26110: Caller failing to hold lock 'l'
 #if defined(HPX_MSVC)
+// 26110: Caller failing to hold lock 'l'
 #pragma warning(push)
 #pragma warning(disable : 26110)
 #endif
@@ -379,17 +386,13 @@ namespace hpx::lcos::detail {
     };
 }    // namespace hpx::lcos::detail
 
-namespace hpx::traits::detail {
-
-    template <typename Future, typename F, typename ContResult,
-        typename Allocator>
-    struct shared_state_allocator<
-        lcos::detail::continuation<Future, F, ContResult>, Allocator>
-    {
-        using type = lcos::detail::continuation_allocator<Allocator, Future, F,
-            ContResult>;
-    };
-}    // namespace hpx::traits::detail
+template <typename Future, typename F, typename ContResult, typename Allocator>
+struct hpx::traits::detail::shared_state_allocator<
+    hpx::lcos::detail::continuation<Future, F, ContResult>, Allocator>
+{
+    using type =
+        lcos::detail::continuation_allocator<Allocator, Future, F, ContResult>;
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 namespace hpx::lcos::detail {
@@ -502,7 +505,7 @@ namespace hpx::lcos::detail {
     public:
         using init_no_addref = typename base_type::init_no_addref;
 
-        unwrap_continuation_allocator(other_allocator const& alloc)
+        explicit unwrap_continuation_allocator(other_allocator const& alloc)
           : alloc_(alloc)
         {
         }
@@ -528,16 +531,13 @@ namespace hpx::lcos::detail {
     };
 }    // namespace hpx::lcos::detail
 
-namespace hpx::traits::detail {
-
-    template <typename ContResult, typename Allocator>
-    struct shared_state_allocator<lcos::detail::unwrap_continuation<ContResult>,
-        Allocator>
-    {
-        using type =
-            lcos::detail::unwrap_continuation_allocator<Allocator, ContResult>;
-    };
-}    // namespace hpx::traits::detail
+template <typename ContResult, typename Allocator>
+struct hpx::traits::detail::shared_state_allocator<
+    hpx::lcos::detail::unwrap_continuation<ContResult>, Allocator>
+{
+    using type =
+        lcos::detail::unwrap_continuation_allocator<Allocator, ContResult>;
+};
 
 namespace hpx::lcos::detail {
 

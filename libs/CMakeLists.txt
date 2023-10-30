@@ -32,7 +32,7 @@ endif()
 set(hpx_external_SOURCES)
 if("${HPX_PLATFORM_UC}" STREQUAL "ANDROID")
   list(APPEND hpx_external_SOURCES ${hpx_external_objects_SOURCES}
-       "${ANDROID_NDK_ROOT}/sources/android/cpufeatures/cpu-features.c"
+       "${Android_NDK_ROOT}/sources/android/cpufeatures/cpu-features.c"
   )
 endif()
 
@@ -100,13 +100,7 @@ target_include_directories(
 )
 
 target_link_libraries(hpx_full PUBLIC hpx_base_libraries)
-
-if((NOT HPX_WITH_STATIC_LINKING) AND (("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
-                                      OR (APPLE))
-)
-  set_target_properties(hpx_full PROPERTIES POSITION_INDEPENDENT_CODE ON)
-endif()
-
+set_target_properties(hpx_full PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_definitions(hpx_full PRIVATE HPX_COMPONENT_NAME=hpx HPX_EXPORTS)
 
 # ##############################################################################
@@ -340,6 +334,11 @@ foreach(lib ${HPX_LIBS})
   endif()
 
   add_subdirectory(${lib})
+
+  set(_hpx_${lib}_modules
+      ${_hpx_${lib}_modules}
+      PARENT_SCOPE
+  )
 endforeach()
 
 # add_hpx_module populates HPX_ENABLED_MODULES
@@ -375,6 +374,10 @@ endif()
 
 if(HPX_WITH_ITTNOTIFY)
   target_link_libraries(hpx_core PUBLIC Amplifier::amplifier)
+endif()
+
+if(HPX_WITH_PARCELPORT_GASNET AND GASNET_LIBRARY_DIRS)
+  target_link_directories(hpx_core PUBLIC ${GASNET_LIBRARY_DIRS})
 endif()
 
 if(HPX_WITH_MODULES_AS_STATIC_LIBRARIES OR HPX_WITH_STATIC_LINKING)

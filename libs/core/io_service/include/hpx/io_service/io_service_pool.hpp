@@ -1,4 +1,4 @@
-//  Copyright (c) 2007-2022 Hartmut Kaiser
+//  Copyright (c) 2007-2023 Hartmut Kaiser
 //
 //  Parts of this code were taken from the Boost.Asio library
 //  Copyright (c) 2003-2007 Christopher M. Kohlhoff (chris at kohlhoff dot com)
@@ -100,7 +100,7 @@ namespace hpx::util {
         }
 
         /// \brief Activate the thread \a index for this thread pool
-        void thread_run(std::size_t index, barrier* startup = nullptr);
+        void thread_run(std::size_t index, barrier* startup = nullptr) const;
 
         /// \brief Return name of this pool
         constexpr char const* get_name() const noexcept
@@ -122,7 +122,8 @@ namespace hpx::util {
         using io_service_ptr = std::unique_ptr<asio::io_context>;
         using work_type = std::unique_ptr<asio::io_context::work>;
 
-        HPX_FORCEINLINE work_type initialize_work(asio::io_context& io_service)
+        HPX_FORCEINLINE static work_type initialize_work(
+            asio::io_context& io_service)
         {
             return work_type(
                 std::make_unique<asio::io_context::work>(io_service));
